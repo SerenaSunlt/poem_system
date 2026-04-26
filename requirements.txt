@@ -1,0 +1,28 @@
+# Web 框架
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+
+# ORM 和数据库
+sqlalchemy==2.0.35
+alembic==1.13.3
+pymysql==1.1.1
+cryptography==43.0.1   # pymysql 的依赖,某些 MySQL 版本需要
+
+# 认证
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.12
+
+# 配置和数据校验
+pydantic==2.9.2
+pydantic-settings==2.5.2
+email-validator==2.2.0
+
+# HTTP 客户端(后面调 Kimi 用)
+httpx==0.27.2
+
+# 开发工具
+python-dotenv==1.0.1
+
+# 数据导入工具
+opencc-python-reimplemented==0.1.7
