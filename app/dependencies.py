@@ -1,5 +1,6 @@
 # app/dependencies.py
-from typing import Generator
+from typing import Generator, Optional
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -8,9 +9,13 @@ from app.database import SessionLocal
 from app.models import User
 from app.utils.security import decode_access_token
 
+
 # OAuth2PasswordBearer 是 FastAPI 内置的认证 scheme
 # tokenUrl 指向登录接口,Swagger 上会生成"登录"按钮
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/users/login", auto_error=False)
+# auto_error=False 让我们手动处理"没传 token"的情况
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="/api/users/login", auto_error=False
+)
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -23,11 +28,11 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def get_current_user(
-        token: str = Depends(oauth2_scheme),
-        db: Session = Depends(get_db),
+    token: Optional[str] = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
 ) -> User:
     """
-    从 JWT 解出当前用户。
+    强制认证:从 JWT 解出当前用户。
     没登录或 token 无效都抛 401。
     """
     if not token:
@@ -54,13 +59,14 @@ def get_current_user(
 
     return user
 
+
 def get_current_user_optional(
-    token: str = Depends(oauth2_scheme),
+    token: Optional[str] = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
-) -> User | None:
+) -> Optional[User]:
     """
     可选认证:有 token 且有效则返回 User,否则返回 None。
-    用于游客可访问的接口。
+    用于游客可访问的接口(推荐、详情)。
     """
     if not token:
         return None

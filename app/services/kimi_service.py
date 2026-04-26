@@ -1,26 +1,45 @@
 # app/services/kimi_service.py
 import asyncio
-from collections import OrderedDict
-import time
 import json
 import logging
-from typing import List, Optional
+import time
+from collections import OrderedDict
+from typing import List, Optional, TypedDict
+
 import httpx
 
 from app.config import settings
 
+
 logger = logging.getLogger(__name__)
 
 
-# 简单的内存缓存,LRU + TTL
+# ===== 数据结构 =====
+
+class KeywordExtractResult(TypedDict):
+    """Kimi 解析出的结构化检索意图"""
+    authors: List[str]
+    dynasties: List[str]
+    keywords: List[str]
+
+
+class KimiServiceError(Exception):
+    """Kimi 调用失败"""
+    pass
+
+
+# ===== 缓存 =====
+
 class _SimpleCache:
+    """LRU + TTL 内存缓存"""
+
     def __init__(self, max_size: int = 500, ttl_seconds: int = 86400):
         self.max_size = max_size
         self.ttl = ttl_seconds
-        self.store: OrderedDict[str, tuple[float, list]] = OrderedDict()
+        self.store: "OrderedDict[str, tuple[float, KeywordExtractResult]]" = OrderedDict()
         self.lock = asyncio.Lock()
 
-    async def get(self, key: str) -> Optional[List[str]]:
+    async def get(self, key: str) -> Optional[KeywordExtractResult]:
         async with self.lock:
             if key not in self.store:
                 return None
@@ -28,25 +47,25 @@ class _SimpleCache:
             if time.time() - timestamp > self.ttl:
                 del self.store[key]
                 return None
-            # LRU:命中后移到末尾
             self.store.move_to_end(key)
             return value
 
-    async def set(self, key: str, value: List[str]):
+    async def set(self, key: str, value: KeywordExtractResult):
         async with self.lock:
             self.store[key] = (time.time(), value)
             self.store.move_to_end(key)
-            # 淘汰最旧的
             while len(self.store) > self.max_size:
                 self.store.popitem(last=False)
 
 
-_cache = _SimpleCache(max_size=500, ttl_seconds=86400)  # 24 小时
+_cache = _SimpleCache(max_size=500, ttl_seconds=86400)
 
-# System prompt:角色 + 任务 + 输出格式
+
+# ===== Prompt 设计 =====
+
 SYSTEM_PROMPT = """你是一个中国古典诗词检索助手。
 
-你的任务是:把用户输入的场景、情绪或检索意图,解析为结构化的检索条件,用于在古诗词数据库中检索。
+你的任务是:把用户输入的描述,解析为结构化的检索条件,用于在古诗词数据库中检索。
 
 输出三类信息:
 1. authors:用户明确提到的诗人名字。请使用诗人的标准姓名(例如"苏东坡"应规范化为"苏轼","太白"应规范化为"李白","易安居士"规范化为"李清照")。如果用户没提诗人,返回空数组。
@@ -77,38 +96,29 @@ SYSTEM_PROMPT = """你是一个中国古典诗词检索助手。
 {"authors": [...], "dynasties": [...], "keywords": [...]}"""
 
 
-class KimiServiceError(Exception):
-    """Kimi 调用失败"""
-    pass
+# ===== 主入口 =====
 
-
-async def expand_keywords(prompt: str, timeout: float = 10.0) -> List[str]:
-    """调用 Kimi 扩展关键词,带缓存。"""
+async def expand_keywords(prompt: str, timeout: float = 10.0) -> KeywordExtractResult:
+    """
+    调用 Kimi 解析用户检索意图,返回 authors/dynasties/keywords 三类。
+    带缓存,失败抛 KimiServiceError。
+    """
     if not prompt or not prompt.strip():
-        return []
+        return {"authors": [], "dynasties": [], "keywords": []}
 
     cache_key = prompt.strip().lower()
 
-    # 先查缓存
     cached = await _cache.get(cache_key)
     if cached is not None:
         logger.info(f"Kimi 缓存命中: {prompt}")
         return cached
 
-    # 调 Kimi(把原来 expand_keywords 的核心逻辑搬这里)
-    keywords = await _call_kimi(prompt, timeout)
+    result = await _call_kimi(prompt, timeout)
+    await _cache.set(cache_key, result)
+    return result
 
-    # 写缓存
-    await _cache.set(cache_key, keywords)
-    return keywords
 
-from typing import TypedDict
-
-class KeywordExtractResult(TypedDict):
-    authors: List[str]
-    dynasties: List[str]
-    keywords: List[str]
-async def _call_kimi(prompt: str, timeout: float) -> List[str]:
+async def _call_kimi(prompt: str, timeout: float) -> KeywordExtractResult:
     """实际调用 Kimi 的内部函数(无缓存)"""
     if not settings.kimi_api_key:
         raise KimiServiceError("Kimi API key 未配置")
@@ -145,24 +155,34 @@ async def _call_kimi(prompt: str, timeout: float) -> List[str]:
 
     try:
         content = data["choices"][0]["message"]["content"]
+        logger.info(f"Kimi raw response: {content}")
         parsed = json.loads(content)
-        keywords = parsed.get("keywords", [])
-        if not isinstance(keywords, list):
-            raise ValueError("keywords 不是数组")
-        cleaned = []
-        seen = set()
-        for kw in keywords:
-            if not isinstance(kw, str):
-                continue
-            kw = kw.strip()
-            if not kw or kw in seen:
-                continue
-            if len(kw) > 10:
-                kw = kw[:10]
-            seen.add(kw)
-            cleaned.append(kw)
-        return cleaned[:8]
-    except (KeyError, json.JSONDecodeError, ValueError) as e:
+    except (KeyError, json.JSONDecodeError) as e:
         logger.error(f"Kimi 返回解析失败: {data}, error: {e}")
         raise KimiServiceError("Kimi 返回格式错误")
 
+    # 清洗每个字段
+    return {
+        "authors": _clean_str_list(parsed.get("authors"), max_len=20, max_count=5),
+        "dynasties": _clean_str_list(parsed.get("dynasties"), max_len=10, max_count=5),
+        "keywords": _clean_str_list(parsed.get("keywords"), max_len=10, max_count=8),
+    }
+
+
+def _clean_str_list(raw, max_len: int, max_count: int) -> List[str]:
+    """清洗字符串列表:类型校验、去空、去重保序、限长。"""
+    if not isinstance(raw, list):
+        return []
+    seen = set()
+    cleaned: List[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        item = item.strip()
+        if not item or item in seen:
+            continue
+        if len(item) > max_len:
+            item = item[:max_len]
+        seen.add(item)
+        cleaned.append(item)
+    return cleaned[:max_count]
