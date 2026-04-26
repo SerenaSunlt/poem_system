@@ -1,25 +1,28 @@
-# 虚拟环境
+# 后端 Python
 venv/
 .venv/
-
-# 环境变量(永远不要提交真实的!)
 .env
-
-# Python
+.env.production
 __pycache__/
-*.py[cod]
-*.egg-info/
-.pytest_cache/
+*.pyc
+*.pyo
+
+# 前端 Node
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.production
+frontend/.env.local
+frontend/.env.*.local
+frontend/.vite/
 
 # IDE
 .idea/
 .vscode/
-*.swp
 
-# 操作系统
+# 系统
 .DS_Store
 Thumbs.db
 
 # 日志
 *.log
-logs/

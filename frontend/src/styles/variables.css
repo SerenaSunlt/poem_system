@@ -1,0 +1,49 @@
+/* src/styles/variables.css */
+:root {
+  /* 颜色 */
+  --color-bg: #faf7f0; /* 米白底色,像宣纸 */
+  --color-bg-card: #ffffff; /* 卡片背景 */
+  --color-text: #1a1a1a; /* 主文字 */
+  --color-text-soft: #6b6b6b; /* 次要文字 */
+  --color-text-faint: #a0a0a0; /* 辅助文字 */
+  --color-accent: #8b4a2b; /* 深棕,像旧印泥 */
+  --color-accent-hover: #6b3820;
+  --color-border: #e8e2d5; /* 浅边框 */
+  --color-border-soft: #f0ebe0;
+  --color-error: #b33a3a;
+  --color-success: #4a7b4a;
+
+  /* 字体 */
+  --font-serif:
+    "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", serif;
+  --font-kaiti: "LXGW WenKai", "霞鹜文楷", "KaiTi", "STKaiti", serif;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+    sans-serif;
+
+  /* 字号 */
+  --fs-xs: 12px;
+  --fs-sm: 14px;
+  --fs-base: 16px;
+  --fs-lg: 18px;
+  --fs-xl: 22px;
+  --fs-2xl: 28px;
+  --fs-3xl: 36px;
+
+  /* 间距 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 30px;
+  --space-7: 36px;
+  --space-8: 64px;
+
+  /* 布局 */
+  --max-width: 600px;
+  --header-height: 64px;
+
+  /* 过渡 */
+  --transition: 200ms ease;
+}

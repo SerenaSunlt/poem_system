@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  poem-backend:
+    build: .
+    container_name: poem-backend
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    ports:
+      - "8001:8000"   # 主机 8001 → 容器 8000(避开你已用的 8000)
+    networks:
+      - test-platform_default
+    depends_on:
+      - dummy-mysql-check
+    mem_limit: 400m
+
+  # 这是个虚拟服务,只为了让 docker-compose 等待 mysql 可达
+  # 因为 mysql 不是这个 compose 文件管理的,不能直接 depends_on
+  dummy-mysql-check:
+    image: busybox
+    command: sh -c "echo 'Skipping check, mysql is external' && exit 0"
+
+networks:
+  test-platform_default:
+    external: true   # 引用已存在的网络,不新建
