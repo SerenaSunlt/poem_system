@@ -32,6 +32,12 @@ const routes = [
     name: "poem-detail",
     component: () => import("../views/PoemDetailView.vue"),
   },
+    {
+  path: '/poem/:id/translate',
+  name: 'poem-translate',
+  component: () => import('../views/TranslationView.vue'),
+  meta: { requiresAuth: true },   // 必须登录才能访问
+}
 ];
 
 const router = createRouter({

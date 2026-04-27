@@ -7,19 +7,20 @@
     <div v-else-if="poem" class="detail-content">
       <PoemCard :poem="poem" mode="hero" />
 
+      <!-- 翻译入口(已登录可见) -->
+      <div v-if="userStore.isLoggedIn" class="translation-entry">
+        <button class="translation-btn" @click="goTranslate">
+          {{ poem.has_translation ? '查看翻译' : '翻 译' }}
+        </button>
+      </div>
+
       <div class="divider"></div>
 
       <!-- 收藏区 -->
       <section class="favorite-section">
         <!-- 已收藏 -->
         <div v-if="poem.is_favorited && poem.favorite_info" class="favorited">
-          <p class="favorited-status">
-            <span class="text-accent">♥ 已收藏</span>
-            <span class="text-faint" v-if="poem.favorite_info.created_at">
-              · {{ formatDate(poem.favorite_info.created_at) }}
-            </span>
-          </p>
-
+          <!-- 标签 -->
           <div v-if="poem.favorite_info.user_tags?.length" class="user-tags">
             <span
               v-for="t in poem.favorite_info.user_tags"
@@ -29,10 +30,20 @@
             >
           </div>
 
-          <p v-if="poem.favorite_info.note" class="user-note text-soft">
+          <!-- 备注 -->
+          <p v-if="poem.favorite_info.note" class="user-note">
             {{ poem.favorite_info.note }}
           </p>
 
+          <!-- 收藏状态 -->
+          <p class="favorited-status text-soft">
+            <span>♥ 已收藏</span>
+            <span class="text-faint" v-if="poem.favorite_info.created_at">
+              · {{ formatDate(poem.favorite_info.created_at) }}
+            </span>
+          </p>
+
+          <!-- 操作链接 -->
           <div class="favorite-actions">
             <button class="action-link" @click="openEdit">编辑</button>
             <span class="action-divider text-faint">·</span>
@@ -61,7 +72,6 @@
       :my-tags="myTagNames"
       @success="onFavoriteSuccess"
     />
-
   </div>
 </template>
 
@@ -81,19 +91,16 @@ const router = useRouter();
 const userStore = useUserStore();
 const toastStore = useToastStore();
 
-// === 数据 ===
 const poem = ref(null);
 const loading = ref(false);
 const myTags = ref([]);
 const myTagNames = computed(() => myTags.value.map((t) => t.name));
 
-// === 弹窗 ===
 const showDialog = ref(false);
 const isEditMode = ref(false);
 const dialogInitialTags = ref([]);
 const dialogInitialNote = ref("");
 
-// === 加载 ===
 async function loadPoem() {
   const id = route.params.id;
   if (!id) return;
@@ -117,7 +124,6 @@ async function loadMyTags() {
   }
 }
 
-// === 收藏(从未收藏出发) ===
 async function handleFavoriteClick() {
   if (!userStore.isLoggedIn) {
     toastStore.info("请先登录后再收藏");
@@ -134,7 +140,6 @@ async function handleFavoriteClick() {
   showDialog.value = true;
 }
 
-// === 编辑(从已收藏出发) ===
 async function openEdit() {
   await loadMyTags();
   isEditMode.value = true;
@@ -144,11 +149,9 @@ async function openEdit() {
 }
 
 async function onFavoriteSuccess() {
-  // 重新加载诗,拿最新的 is_favorited 和 favorite_info
   await loadPoem();
 }
 
-// === 取消收藏 ===
 async function handleRemove() {
   try {
     await favoriteApi.removeFavorite(poem.value.id);
@@ -157,7 +160,10 @@ async function handleRemove() {
   } catch (e) {}
 }
 
-// === 工具 ===
+function goTranslate() {
+  router.push({ name: 'poem-translate', params: { id: poem.value.id } });
+}
+
 function goBack() {
   if (window.history.length > 1) {
     router.back();
@@ -174,8 +180,6 @@ function formatDate(iso) {
   return `${y}.${m}.${day}`;
 }
 
-// === 路由参数变化时重新加载 ===
-// (虽然这个页面是详情,但用户可能从详情跳到另一首详情)
 watch(
   () => route.params.id,
   (newId, oldId) => {
@@ -210,37 +214,89 @@ onMounted(() => {
   margin: 0 auto;
 }
 
+/* 翻译入口 */
+.translation-entry {
+  text-align: center;
+  margin-top: var(--space-5);
+  padding-top: var(--space-3);
+}
+.translation-btn {
+  font-family: var(--font-kaiti);
+  font-size: var(--fs-sm);
+  letter-spacing: 6px;
+  color: var(--color-text-soft);
+  padding: var(--space-2) var(--space-5);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  transition: all var(--transition);
+}
+.translation-btn:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.divider {
+  height: 1px;
+  background: var(--color-border-soft);
+  margin: var(--space-5) auto;
+  max-width: 200px;
+}
+
 /* 收藏区 */
 .favorite-section {
   text-align: center;
-  padding: var(--space-5) 0;
+  padding: var(--space-3) 0 var(--space-5);
 }
-.favorited-status {
-  font-size: var(--fs-base);
-  margin-bottom: var(--space-3);
-  letter-spacing: 1px;
-}
+
 .user-tags {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-4);
 }
 .user-tag {
   font-size: var(--fs-sm);
+  font-family: var(--font-kaiti);
+  letter-spacing: 1px;
   padding: 2px var(--space-3);
-  background: var(--color-border-soft);
-  color: var(--color-text-soft);
+  background: rgba(139, 74, 43, 0.08);
+  color: var(--color-accent);
+  border-radius: 2px;
 }
+
 .user-note {
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
+  font-family: var(--font-kaiti);
   font-style: italic;
-  margin-bottom: var(--space-4);
-  max-width: 500px;
-  margin-left: auto;
-  margin-right: auto;
+  letter-spacing: 1px;
+  line-height: 1.9;
+  color: var(--color-text);
+  max-width: 480px;
+  margin: 0 auto var(--space-5);
 }
+.user-note::before {
+  content: '「';
+  color: var(--color-text-faint);
+  margin-right: 2px;
+  font-style: normal;
+}
+.user-note::after {
+  content: '」';
+  color: var(--color-text-faint);
+  margin-left: 2px;
+  font-style: normal;
+}
+
+.favorited-status {
+  font-size: var(--fs-sm);
+  margin-bottom: var(--space-3);
+  letter-spacing: 1px;
+}
+.favorited-status > span:first-child {
+  color: var(--color-accent);
+}
+
 .favorite-actions {
   display: flex;
   justify-content: center;
@@ -265,5 +321,11 @@ onMounted(() => {
   text-align: center;
   padding: var(--space-8);
   font-size: var(--fs-sm);
+}
+
+@media (max-width: 640px) {
+  .user-note {
+    font-size: var(--fs-sm);
+  }
 }
 </style>
