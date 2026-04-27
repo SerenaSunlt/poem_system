@@ -14,6 +14,7 @@ class Poem(Base):
     author: Mapped[Optional[str]] = mapped_column(String(100), index=True)
     dynasty: Mapped[Optional[str]] = mapped_column(String(50), index=True)
     content: Mapped[str] = mapped_column(Text)
+    content_simplified: Mapped[str] = mapped_column(Text, default="")  # 简体带标点(展示用)
     content_plain: Mapped[str] = mapped_column(Text)
     type: Mapped[str] = mapped_column(String(20), default="诗")
     tags: Mapped[list] = mapped_column(JSON, default=list)

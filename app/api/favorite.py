@@ -117,6 +117,7 @@ def get_favorites(
                     "author": fav.poem.author,
                     "dynasty": fav.poem.dynasty,
                     "content": fav.poem.content,
+                    "content_simplified": fav.poem.content_simplified or fav.poem.content,
                     "type": fav.poem.type,
                 },
                 "user_tags": fav.user_tags or [],

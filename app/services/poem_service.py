@@ -203,6 +203,7 @@ def attach_favorite_status(
             "author": poem.author,
             "dynasty": poem.dynasty,
             "content": poem.content,
+            "content_simplified": poem.content_simplified or poem.content,
             "type": poem.type,
             "tags": poem.tags or [],
             "is_favorited": poem.id in favorited_ids,

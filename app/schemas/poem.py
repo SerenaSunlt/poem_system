@@ -11,6 +11,7 @@ class PoemBase(BaseModel):
     author: Optional[str] = None
     dynasty: Optional[str] = None
     content: str
+    content_simplified: str = ""
     type: str
     tags: List[str] = Field(default_factory=list)
 

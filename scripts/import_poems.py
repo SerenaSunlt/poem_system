@@ -73,13 +73,13 @@ def parse_poem(raw: dict, dynasty: str, poem_type: str, default_author: str | No
     # 拼接正文(保留原始形态,带换行)
     content_original = "\n".join(paragraphs)
 
-    # 简体转换(对已经是简体的内容,这一步是无操作)
+    # 简体转换
     title = to_simplified(title_raw).strip()
     author = to_simplified(author_raw).strip() if author_raw else None
-    content_simplified = to_simplified(content_original)
+    content_simplified_with_punct = to_simplified(content_original)  # 这里改名,清晰一点
 
     # 先去除括号注释,再去标点 → 干净的检索文本
-    content_no_notes = NOTE_PATTERN.sub("", content_simplified)
+    content_no_notes = NOTE_PATTERN.sub("", content_simplified_with_punct)
     content_plain = strip_punctuation(content_no_notes)
 
     search_text = " ".join(filter(None, [title, author or "", content_plain]))
@@ -89,6 +89,7 @@ def parse_poem(raw: dict, dynasty: str, poem_type: str, default_author: str | No
         "author": (author or "")[:100] or None,
         "dynasty": dynasty,
         "content": content_original,  # 保留原文,带注释
+        "content_simplified": content_simplified_with_punct,
         "content_plain": content_plain,  # 简体无标点无注释,用于搜索
         "type": poem_type,
         "tags": [],
