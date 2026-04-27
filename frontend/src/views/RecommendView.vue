@@ -6,7 +6,7 @@
         <input
           v-model="promptInput"
           class="prompt-input"
-          placeholder="这一刻想写点什么 ..."
+          placeholder="这一刻你在想什么 ..."
           maxlength="100"
           @keydown.enter="handlePromptSubmit"
         />
@@ -86,42 +86,50 @@
       @success="onFavoriteSuccess"
     />
 
-     <!-- 游客底部入口(已登录用户不显示) -->
+    <!-- 游客底部入口(已登录用户不显示) -->
     <footer v-if="!userStore.isLoggedIn" class="guest-entry">
-      <RouterLink to="/login" class="guest-entry-link">
+      <RouterLink
+        :to="{ path: '/login', query: { redirect: $route.fullPath } }"
+        class="guest-entry-link"
+      >
         登录 / 注册 · 收藏你心仪的诗句
       </RouterLink>
     </footer>
   </div>
-
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
-import { useRouter } from "vue-router";
-import * as poemApi from "../api/poem";
-import * as favoriteApi from "../api/favorite";
-import * as dislikeApi from "../api/dislike";
-import { useUserStore } from "../stores/user";
-import { useToastStore } from "../stores/toast";
-import LoadingSpinner from "../components/LoadingSpinner.vue";
-import FavoriteDialog from "../components/FavoriteDialog.vue";
+import { ref, computed, onMounted } from 'vue'
+import { storeToRefs } from 'pinia'
+import { RouterLink, useRouter, useRoute } from 'vue-router'
+import { useRecommendStore } from '../stores/recommend'
+import { useUserStore } from '../stores/user'
+import { useToastStore } from '../stores/toast'
+import * as favoriteApi from '../api/favorite'
+import * as dislikeApi from '../api/dislike'
+import FavoriteDialog from '../components/FavoriteDialog.vue'
+import LoadingSpinner from '../components/LoadingSpinner.vue'
 
-const router = useRouter();
-const userStore = useUserStore();
-const toastStore = useToastStore();
+const recommendStore = useRecommendStore()
+const userStore = useUserStore()
+const toast = useToastStore()
+const router = useRouter()
+const route = useRoute()
 
-// === 状态 ===
-const promptInput = ref(""); // 输入框当前值
-const lastPrompt = ref(""); // 上次提交的 prompt(决定"换一首"是否带 prompt)
-const keywords = ref([]); // AI 解析出的关键词
-const currentPoem = ref(null);
-const loading = ref(false);
-const showFavoriteDialog = ref(false);
-const myTags = ref([]); // 用户已有标签(给弹窗推荐用)
+// 从 store 解构出响应式状态(用 storeToRefs 保持响应性)
+const { currentPoem, lastPrompt, keywords, loading } = storeToRefs(recommendStore)
 
-// === 计算属性 ===
-// 把诗词正文按换行拆成数组,方便每行单独渲染
+// 输入框的本地状态
+const promptInput = ref('')
+
+// 收藏弹窗
+const showFavoriteDialog = ref(false)
+
+// 用户已用过的标签列表
+const myTags = ref([])
+const myTagNames = computed(() => myTags.value.map(t => t.name))
+
+// === 诗句分行处理 ===
 const poemLines = computed(() => {
   if (!currentPoem.value?.content) return []
 
@@ -133,124 +141,123 @@ const poemLines = computed(() => {
   const result = []
 
   for (const line of rawLines) {
-    // 把这一行切成分句
     const subs = line.split(/(?<=[,。;!?,.;!?])/g)
       .map(s => s.trim())
       .filter(Boolean)
 
-    // 看这一行里最长的分句多少字符
     const maxSubLen = subs.reduce((max, s) => Math.max(max, s.length), 0)
 
     if (maxSubLen <= 6) {
-      // 短行(五言、四言等)→ 保持原样,把这一行作为整体
       result.push(line)
     } else {
-      // 长行(七言以上)→ 拆成单句
       result.push(...subs)
     }
   }
 
   return result
 })
-const myTagNames = computed(() => myTags.value.map((t) => t.name));
 
+// === 进入页面:确保有诗显示 ===
+onMounted(async () => {
+  // 关键:只在 store 没诗时才加载,保留状态
+  await recommendStore.ensurePoem()
 
-// === 加载诗 ===
-async function loadPoem(prompt = "") {
-  loading.value = true;
-  try {
-    const data = await poemApi.recommend(prompt, 1);
-    if (data.poems && data.poems.length > 0) {
-      currentPoem.value = data.poems[0];
-      keywords.value = data.prompt_keywords || [];
-      lastPrompt.value = prompt;
-    } else {
-      currentPoem.value = null;
-    }
-  } catch (e) {
-    // 拦截器已弹 toast
-  } finally {
-    loading.value = false;
+  // 把 store 里的 lastPrompt 同步到输入框
+  promptInput.value = lastPrompt.value
+
+  // 如果已登录,顺便拉一下用户的标签列表
+  if (userStore.isLoggedIn) {
+    fetchMyTags()
   }
-}
+})
 
-async function loadNext() {
-  await loadPoem(lastPrompt.value);
-}
+// === 用户主动操作 ===
 
-// === Prompt 处理 ===
+// 寻诗(根据当前输入)
 async function handlePromptSubmit() {
-  const p = promptInput.value.trim();
-  if (!p) return;
-  await loadPoem(p);
+  if (loading.value) return
+  await recommendStore.loadNewPoem(promptInput.value.trim())
 }
 
-function clearPrompt() {
-  promptInput.value = "";
-  lastPrompt.value = "";
-  keywords.value = [];
-  loadPoem();
+// 换一首(沿用上次的 prompt)
+async function loadNext() {
+  await recommendStore.loadNewPoem(lastPrompt.value)
 }
 
-// === 收藏 ===
+// 清除当前 prompt,加载随机诗
+async function clearPrompt() {
+  promptInput.value = ''
+  await recommendStore.loadNewPoem('')
+}
+
+// 收藏按钮
 async function handleFavoriteClick() {
-  // 游客提示登录
+  if (!currentPoem.value) return
+
+  // 未登录:跳登录页,带 redirect 回来
   if (!userStore.isLoggedIn) {
-    toastStore.info("请先登录后再收藏");
-    router.push({ name: "login", query: { redirect: "/recommend" } });
-    return;
+    router.push({
+      path: '/login',
+      query: { redirect: route.fullPath }
+    })
+    return
   }
 
-  // 已收藏 → 取消收藏
+  // 已收藏:取消
   if (currentPoem.value.is_favorited) {
     try {
-      await favoriteApi.removeFavorite(currentPoem.value.id);
-      currentPoem.value.is_favorited = false;
-      toastStore.success("已取消收藏");
-    } catch (e) {}
-    return;
+      await favoriteApi.remove(currentPoem.value.id)
+      recommendStore.updateFavoriteStatus(false)
+      toast.success('已取消收藏')
+    } catch (e) {
+      // 拦截器已处理
+    }
+    return
   }
 
-  // 未收藏 → 打开弹窗
-  await loadMyTags();
-  showFavoriteDialog.value = true;
+  // 未收藏:打开弹窗
+  showFavoriteDialog.value = true
 }
 
-async function loadMyTags() {
-  try {
-    const data = await favoriteApi.listMyTags();
-    myTags.value = data.tags || [];
-  } catch (e) {
-    myTags.value = [];
-  }
-}
-
+// 收藏弹窗成功回调
 function onFavoriteSuccess() {
-  if (currentPoem.value) {
-    currentPoem.value.is_favorited = true;
-  }
+  showFavoriteDialog.value = false
+  recommendStore.updateFavoriteStatus(true)
+  toast.success('已收藏')
+  fetchMyTags()
 }
 
-// === 不喜欢 ===
+// 不喜欢
 async function handleDislike() {
+  if (!currentPoem.value) return
+
+  // 游客也允许"不喜欢"?如果你想限制只有登录用户才能点,加上下面这段
   if (!userStore.isLoggedIn) {
-    toastStore.info("请先登录");
-    router.push({ name: "login", query: { redirect: "/recommend" } });
-    return;
+    router.push({
+      path: '/login',
+      query: { redirect: route.fullPath }
+    })
+    return
   }
-  if (!currentPoem.value) return;
 
   try {
-    await dislikeApi.addDislike(currentPoem.value.id);
-    toastStore.info("已为你过滤这首");
-    await loadNext();
-  } catch (e) {}
+    await dislikeApi.add(currentPoem.value.id)
+    toast.success('已标记,将不再推荐')
+    await recommendStore.loadNewPoem(lastPrompt.value)
+  } catch (e) {
+    // 拦截器已处理
+  }
 }
 
-// === 初始化 ===
-onMounted(() => {
-  loadPoem();
-});
+// === 辅助:拉用户标签 ===
+async function fetchMyTags() {
+  try {
+    const data = await favoriteApi.listTags()
+    myTags.value = data.tags || []
+  } catch (e) {
+    // 静默失败
+  }
+}
 </script>
 
 <style scoped>

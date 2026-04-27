@@ -47,7 +47,7 @@
             class="input note-input"
             rows="3"
             maxlength="500"
-            placeholder="比如:2026 五一杭州行"
+            :placeholder="notePlaceholder"
           ></textarea>
         </div>
 
@@ -73,7 +73,7 @@ const props = defineProps({
   isEdit: { type: Boolean, default: false },
   initialTags: { type: Array, default: () => [] },
   initialNote: { type: String, default: "" },
-  myTags: { type: Array, default: () => [] }, // 用户已有的标签
+  myTags: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits(["update:modelValue", "success"]);
@@ -85,7 +85,26 @@ const tagDraft = ref("");
 const note = ref("");
 const loading = ref(false);
 
-// 弹窗打开时初始化数据
+// 备注 placeholder 候选(每次打开弹窗随机一条)
+const notePlaceholders = [
+  "看完我感觉我看完了",
+  "此诗已收录,以备查阅",
+  "不知道为什么就想存",
+  "下次发朋友圈可以用",
+  "曹操高陵背诵免门票用",
+  "收藏了就是会背了",
+  "2026 五一贵州行",
+  "在公司厕所读完的",
+  "这首诗很有诗的味道",
+];
+
+// 当前抽中的 placeholder(纯数据)
+const rawPlaceholder = ref(notePlaceholders[0]);
+
+// 显示用(带前缀)
+const notePlaceholder = computed(() => `比如:${rawPlaceholder.value}`);
+
+// 弹窗打开时初始化数据 + 随机抽一条 placeholder
 watch(
   () => props.modelValue,
   (val) => {
@@ -93,12 +112,14 @@ watch(
       tags.value = [...props.initialTags];
       note.value = props.initialNote || "";
       tagDraft.value = "";
+      rawPlaceholder.value =
+        notePlaceholders[Math.floor(Math.random() * notePlaceholders.length)];
     }
   },
   { immediate: true },
 );
 
-// 推荐已有标签:用户用过的标签里,当前没选的前几个
+// 推荐已有标签
 const suggestedTags = computed(() => {
   return props.myTags.filter((t) => !tags.value.includes(t)).slice(0, 5);
 });
@@ -128,7 +149,6 @@ function removeTag(idx) {
   tags.value.splice(idx, 1);
 }
 
-// 在空输入框上按 backspace 删除最后一个标签
 function onBackspace(e) {
   if (!tagDraft.value && tags.value.length > 0) {
     tags.value.pop();
