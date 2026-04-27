@@ -4,5 +4,6 @@ from app.models.user import User
 from app.models.poem import Poem
 from app.models.favorite import Favorite
 from app.models.dislike import Dislike
+from app.models.translation import Translation
 
-__all__ = ["Base", "User", "Poem", "Favorite", "Dislike"]
+__all__ = ["Base", "User", "Poem", "Favorite", "Dislike", "Translation"]
