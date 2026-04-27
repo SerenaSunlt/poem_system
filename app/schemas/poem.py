@@ -36,6 +36,7 @@ class PoemDetail(PoemBase):
     """诗词详情"""
     is_favorited: bool = False
     favorite_info: Optional[FavoriteInfo] = None
+    has_translation: bool = False
 
 
 class RecommendOut(BaseModel):

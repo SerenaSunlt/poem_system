@@ -88,7 +88,9 @@ def get_poem(
         "content_simplified": poem.content_simplified or poem.content,
         "type": poem.type,
         "tags": poem.tags or [],
-        "is_favorited": False, "favorite_info": None,
+        "is_favorited": False,
+        "favorite_info": None,
+        "has_translation": False,
     }
 
     if current_user:
@@ -100,5 +102,11 @@ def get_poem(
                 "note": favorite.note,
                 "created_at": favorite.created_at.isoformat(),
             }
+
+        # 查这首诗当前用户是否已翻译
+        from app.services.translation_service import get_translation
+        translation = get_translation(db, current_user.id, poem.id)
+        if translation:
+            data["has_translation"] = True
 
     return success(data)
