@@ -365,6 +365,7 @@ async function fetchMyTags() {
   gap: var(--space-6);
   padding-top: var(--space-5);
   border-top: 1px solid var(--color-border-soft);
+  flex-wrap: wrap;
 }
 .action-btn {
   display: inline-flex;
@@ -374,6 +375,7 @@ async function fetchMyTags() {
   font-size: var(--fs-sm);
   color: var(--color-text-soft);
   transition: color var(--transition);
+  white-space: nowrap;
 }
 .action-btn:hover {
   color: var(--color-accent);
@@ -424,5 +426,13 @@ async function fetchMyTags() {
     font-size: var(--fs-2xl);
     letter-spacing: 4px;
   }
+   /* 移动端按钮适配 */
+  .poem-actions {
+    gap: var(--space-4);
+  }
+  .action-btn {
+    padding: var(--space-2) var(--space-3);
+  }
 }
+
 </style>

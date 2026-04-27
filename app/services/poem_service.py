@@ -19,7 +19,6 @@ class PoemServiceError(Exception):
 # ===== 内部工具 =====
 
 def _get_disliked_poem_ids(db: Session, user_id: Optional[int]) -> Set[int]:
-    """获取用户屏蔽的所有 poem_id 集合;游客返回空集"""
     if user_id is None:
         return set()
     rows = db.query(Dislike.poem_id).filter(Dislike.user_id == user_id).all()
@@ -27,9 +26,8 @@ def _get_disliked_poem_ids(db: Session, user_id: Optional[int]) -> Set[int]:
 
 
 def _get_favorited_poem_ids(
-    db: Session, user_id: int, poem_ids: List[int]
+        db: Session, user_id: int, poem_ids: List[int]
 ) -> Set[int]:
-    """批量查询给定 poem_ids 中,用户收藏过的子集"""
     if not poem_ids:
         return set()
     rows = (
@@ -43,14 +41,11 @@ def _get_favorited_poem_ids(
 # ===== 推荐 =====
 
 def random_recommend(
-    db: Session,
-    user_id: Optional[int],
-    count: int = 1,
+        db: Session,
+        user_id: Optional[int],
+        count: int = 1,
 ) -> List[Poem]:
-    """
-    随机推荐 count 首诗,排除用户已 dislike 的(游客不排除)。
-    实现策略:用 ID 范围随机,而不是 ORDER BY RAND()。
-    """
+    """随机推荐 count 首诗,排除用户已 dislike 的"""
     if count < 1 or count > 5:
         raise PoemServiceError(1001, "count 必须在 1~5 之间")
 
@@ -91,20 +86,21 @@ def random_recommend(
 
 
 def prompt_recommend(
-    db: Session,
-    user_id: Optional[int],
-    keywords: Optional[List[str]] = None,
-    authors: Optional[List[str]] = None,
-    dynasties: Optional[List[str]] = None,
-    count: int = 3,
+        db: Session,
+        user_id: Optional[int],
+        keywords: Optional[List[str]] = None,
+        authors: Optional[List[str]] = None,
+        dynasties: Optional[List[str]] = None,
+        count: int = 3,
 ) -> List[Poem]:
     """
     基于结构化检索意图推荐:
-    - 作者命中 +10 分(高权重)
-    - 朝代命中 +3 分(中权重)
-    - 关键词命中 每个 +1 分(低权重)
+    - 标题命中关键词 +50 分(精准命中)
+    - 作者命中 +10 分
+    - 朝代命中 +3 分
+    - 关键词内容命中 +1 分
 
-    至少一个条件命中才算候选。三类全空返回空列表(让上层走随机)。
+    高分(>=50)精准命中不参与随机,按分数顺序取;低分用随机抽样保证多样性。
     """
     if count < 1 or count > 5:
         raise PoemServiceError(1001, "count 必须在 1~5 之间")
@@ -121,23 +117,25 @@ def prompt_recommend(
     score_exprs = []
     or_filters = []
 
-    # 作者权重 +10(精确匹配)
+    # 关键词:标题命中权重 +50,内容命中 +1
+    for kw in keywords:
+        like_pattern = f"%{kw}%"
+        title_hit = Poem.title.like(like_pattern)
+        text_hit = Poem.search_text.like(like_pattern)
+        score_exprs.append(case((title_hit, 50), else_=0))
+        score_exprs.append(case((text_hit, 1), else_=0))
+        or_filters.append(text_hit)
+
+    # 作者权重 +10
     for author in authors:
         condition = (Poem.author == author)
         score_exprs.append(case((condition, 10), else_=0))
         or_filters.append(condition)
 
-    # 朝代权重 +3(精确匹配)
+    # 朝代权重 +3
     for dynasty in dynasties:
         condition = (Poem.dynasty == dynasty)
         score_exprs.append(case((condition, 3), else_=0))
-        or_filters.append(condition)
-
-    # 关键词权重 +1(模糊匹配)
-    for kw in keywords:
-        like_pattern = f"%{kw}%"
-        condition = Poem.search_text.like(like_pattern)
-        score_exprs.append(case((condition, 1), else_=0))
         or_filters.append(condition)
 
     if not score_exprs:
@@ -149,7 +147,6 @@ def prompt_recommend(
     if disliked_ids:
         query = query.filter(~Poem.id.in_(disliked_ids))
 
-    # 多取候选(高分前 count*5),再随机抽 count 首,保证多样性
     candidates = (
         query.order_by(literal_column("score").desc(), Poem.id)
         .limit(count * 5)
@@ -159,14 +156,22 @@ def prompt_recommend(
     if not candidates:
         return []
 
-    selected = random.sample(candidates, min(count, len(candidates)))
+    # 高分精准命中(>=50,即标题命中):不参与随机,按分数顺序取前 count 条
+    HIGH_SCORE_THRESHOLD = 50
+    high_score = [(p, s) for p, s in candidates if s >= HIGH_SCORE_THRESHOLD]
+
+    if high_score:
+        selected = high_score[:count]
+    else:
+        # 中低分:随机抽,保证多样性
+        selected = random.sample(candidates, min(count, len(candidates)))
+
     return [poem for poem, _score in selected]
 
 
 # ===== 详情 =====
 
 def get_poem_by_id(db: Session, poem_id: int) -> Poem:
-    """根据 ID 获取诗词详情,不存在抛业务异常"""
     poem = db.query(Poem).filter(Poem.id == poem_id).first()
     if not poem:
         raise PoemServiceError(2001, "诗词不存在")
@@ -174,9 +179,8 @@ def get_poem_by_id(db: Session, poem_id: int) -> Poem:
 
 
 def get_user_favorite(
-    db: Session, user_id: int, poem_id: int
+        db: Session, user_id: int, poem_id: int
 ) -> Optional[Favorite]:
-    """获取用户对某首诗的收藏记录,没有则返回 None"""
     return (
         db.query(Favorite)
         .filter(Favorite.user_id == user_id, Favorite.poem_id == poem_id)
@@ -185,13 +189,10 @@ def get_user_favorite(
 
 
 def attach_favorite_status(
-    db: Session,
-    user_id: int,
-    poems: List[Poem],
+        db: Session,
+        user_id: int,
+        poems: List[Poem],
 ) -> List[dict]:
-    """
-    给一批诗词附加 is_favorited 字段,返回 dict 列表(便于直接序列化)。
-    """
     poem_ids = [p.id for p in poems]
     favorited_ids = _get_favorited_poem_ids(db, user_id, poem_ids)
 
