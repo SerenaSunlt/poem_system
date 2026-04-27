@@ -27,6 +27,7 @@ app.include_router(user.router)
 app.include_router(poem.router)
 app.include_router(favorite.router)
 app.include_router(dislike.router)
+app.include_router(translation.router)
 
 
 @app.get("/")
