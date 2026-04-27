@@ -9,17 +9,20 @@
     </header>
 
     <div class="card-content">
-      <p v-for="(line, idx) in poemLines" :key="idx" class="card-line">
+      <p v-for="(line, idx) in displayLines" :key="idx" class="card-line">
         {{ line }}
+      </p>
+      <!-- 列表模式:被截断时,显示"读全篇" -->
+      <p v-if="mode === 'list' && isTruncated" class="more-hint text-faint">
+        读全篇
       </p>
     </div>
 
-    <!-- 列表模式:展示用户标签和备注 -->
-    <div v-if="mode === 'list' && (userTags.length || note)" class="card-extra">
-      <div v-if="userTags.length" class="user-tags">
+    <!-- 列表模式:展示用户标签(备注不在列表显示,详情页才显示) -->
+    <div v-if="mode === 'list' && userTags.length" class="card-extra">
+      <div class="user-tags">
         <span v-for="t in userTags" :key="t" class="user-tag">{{ t }}</span>
       </div>
-      <p v-if="note" class="note text-soft">{{ note }}</p>
     </div>
   </article>
 </template>
@@ -37,9 +40,10 @@ const props = defineProps({
   note: { type: String, default: '' },
 })
 
-// 把诗词正文拆成"分句"数组
-// 例如:"水光潋滟晴方好,山色空蒙雨亦奇。"
-//   → ["水光潋滟晴方好,", "山色空蒙雨亦奇。"]
+// 列表模式:超过这个分句数就截断,显示"读全篇"
+const LIST_MAX_LINES = 2
+
+// 把诗词正文拆成"分句"数组(同样的长短句逻辑)
 const poemLines = computed(() => {
   if (!props.poem?.content) return []
 
@@ -65,6 +69,19 @@ const poemLines = computed(() => {
   }
 
   return result
+})
+
+// 实际显示的行(列表模式可能截断,hero 模式全显)
+const displayLines = computed(() => {
+  if (props.mode === 'list' && poemLines.value.length > LIST_MAX_LINES) {
+    return poemLines.value.slice(0, LIST_MAX_LINES)
+  }
+  return poemLines.value
+})
+
+// 是否被截断(用来决定要不要显示"读全篇")
+const isTruncated = computed(() => {
+  return props.mode === 'list' && poemLines.value.length > LIST_MAX_LINES
 })
 </script>
 
@@ -102,6 +119,12 @@ const poemLines = computed(() => {
   font-size: var(--fs-base);
   letter-spacing: 2px;
 }
+.mode-list .more-hint {
+  margin-top: var(--space-3);
+  font-size: var(--fs-xs);
+  letter-spacing: 2px;
+  font-family: var(--font-kaiti);
+}
 
 /* === hero 模式:沉浸大字号(详情、推荐用) === */
 .mode-hero {
@@ -126,18 +149,17 @@ const poemLines = computed(() => {
   letter-spacing: 4px;
 }
 
-/* 用户标签和备注(只在 list 模式出现) */
+/* 用户标签(只在 list 模式出现) */
 .card-extra {
   margin-top: var(--space-3);
   padding-top: var(--space-3);
   border-top: 1px dashed var(--color-border-soft);
-  text-align: left;
 }
 .user-tags {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  margin-bottom: var(--space-2);
+  justify-content: center;
 }
 .user-tag {
   font-size: var(--fs-xs);
@@ -145,20 +167,15 @@ const poemLines = computed(() => {
   background: var(--color-border-soft);
   color: var(--color-text-soft);
 }
-.note {
-  font-size: var(--fs-sm);
-  font-style: italic;
-}
+
 /* === 移动端:每个分句独占一行 === */
 @media (max-width: 640px) {
-  /* hero 模式(详情页和推荐页用) */
   .mode-hero .card-line {
-    font-size: var(--fs-lg);   /* 22 → 18,稍小 */
-    letter-spacing: 2px;        /* 4 → 2,字距收紧 */
+    font-size: var(--fs-lg);
+    letter-spacing: 2px;
     line-height: 2.2;
   }
 
-  /* list 模式 */
   .mode-list .card-line {
     font-size: var(--fs-sm);
     letter-spacing: 1px;

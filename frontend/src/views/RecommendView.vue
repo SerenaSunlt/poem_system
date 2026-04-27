@@ -223,7 +223,6 @@ async function handleFavoriteClick() {
 function onFavoriteSuccess() {
   showFavoriteDialog.value = false
   recommendStore.updateFavoriteStatus(true)
-  toast.success('已收藏')
   fetchMyTags()
 }
 
