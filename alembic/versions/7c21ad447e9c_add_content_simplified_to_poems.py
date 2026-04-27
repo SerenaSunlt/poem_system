@@ -17,7 +17,6 @@ down_revision: Union[str, None] = 'd0e52d00bc0b'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-
 def upgrade() -> None:
     # MySQL 不允许 TEXT 列有 DEFAULT 值,所以分三步走:
     # 1. 允许 NULL 加上列
