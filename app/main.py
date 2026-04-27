@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.api import user, poem, dislike, favorite
+from app.api import user, poem, dislike, favorite, translation
 
 
 app = FastAPI(
