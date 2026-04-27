@@ -6,7 +6,7 @@
         <input
           v-model="promptInput"
           class="prompt-input"
-          placeholder="描述一个场景,我为你寻一句诗 ..."
+          placeholder="这一刻想写点什么 ..."
           maxlength="100"
           @keydown.enter="handlePromptSubmit"
         />
@@ -85,7 +85,15 @@
       :my-tags="myTagNames"
       @success="onFavoriteSuccess"
     />
+
+     <!-- 游客底部入口(已登录用户不显示) -->
+    <footer v-if="!userStore.isLoggedIn" class="guest-entry">
+      <RouterLink to="/login" class="guest-entry-link">
+        登录 / 注册 · 收藏你心仪的诗句
+      </RouterLink>
+    </footer>
   </div>
+
 </template>
 
 <script setup>
@@ -115,14 +123,37 @@ const myTags = ref([]); // 用户已有标签(给弹窗推荐用)
 // === 计算属性 ===
 // 把诗词正文按换行拆成数组,方便每行单独渲染
 const poemLines = computed(() => {
-  if (!currentPoem.value?.content) return [];
-  return currentPoem.value.content
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean);
-});
+  if (!currentPoem.value?.content) return []
 
+  const rawLines = currentPoem.value.content
+    .split('\n')
+    .map(s => s.trim())
+    .filter(Boolean)
+
+  const result = []
+
+  for (const line of rawLines) {
+    // 把这一行切成分句
+    const subs = line.split(/(?<=[,。;!?,.;!?])/g)
+      .map(s => s.trim())
+      .filter(Boolean)
+
+    // 看这一行里最长的分句多少字符
+    const maxSubLen = subs.reduce((max, s) => Math.max(max, s.length), 0)
+
+    if (maxSubLen <= 6) {
+      // 短行(五言、四言等)→ 保持原样,把这一行作为整体
+      result.push(line)
+    } else {
+      // 长行(七言以上)→ 拆成单句
+      result.push(...subs)
+    }
+  }
+
+  return result
+})
 const myTagNames = computed(() => myTags.value.map((t) => t.name));
+
 
 // === 加载诗 ===
 async function loadPoem(prompt = "") {
@@ -351,5 +382,39 @@ onMounted(() => {
   text-align: center;
   padding: var(--space-7);
   font-size: var(--fs-sm);
+}
+
+.guest-entry {
+  margin-top: var(--space-7);
+  padding: var(--space-5) 0;
+  text-align: center;
+}
+.guest-entry-link {
+  font-family: var(--font-kaiti);
+  font-size: var(--fs-sm);
+  color: var(--color-text-faint);
+  letter-spacing: 2px;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid transparent;
+  transition: all var(--transition);
+}
+.guest-entry-link:hover {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-border);
+}
+
+@media (max-width: 640px) {
+  .poem-line {
+    font-size: var(--fs-lg);
+    letter-spacing: 2px;
+    line-height: 2.2;
+  }
+  .poem-line:nth-child(even) {
+    margin-bottom: var(--space-2);
+  }
+  .poem-title {
+    font-size: var(--fs-2xl);
+    letter-spacing: 4px;
+  }
 }
 </style>

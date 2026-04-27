@@ -1,5 +1,7 @@
 <template>
   <div class="auth-page">
+    <RouterLink to="/recommend" class="back-home">返回</RouterLink>
+
     <div class="auth-box">
       <h1 class="title font-kaiti">诗笺</h1>
       <p class="subtitle text-soft">创建一个新账号</p>
@@ -26,7 +28,7 @@
           required
         />
         <button type="submit" class="btn" :disabled="loading">
-          {{ loading ? "注册中..." : "注 册" }}
+          {{ loading ? '注册中...' : '注 册' }}
         </button>
       </form>
 
@@ -110,5 +112,22 @@ async function handleSubmit() {
 }
 .footer {
   font-size: var(--fs-sm);
+}
+.back-home {
+  position: absolute;
+  top: var(--space-5);
+  left: var(--space-5);
+  font-size: var(--fs-sm);
+  color: var(--color-text-faint);
+  padding: var(--space-2) 0;
+  transition: color var(--transition);
+}
+.back-home:hover {
+  color: var(--color-accent);
+}
+
+/* 让 auth-page 成为定位上下文,这样 back-home 的 absolute 才相对它 */
+.auth-page {
+  position: relative;
 }
 </style>

@@ -25,25 +25,47 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
+import { computed } from 'vue'
 
 const props = defineProps({
   poem: { type: Object, required: true },
   mode: {
     type: String,
-    default: "list", // 'list' | 'hero'(详情/推荐用大字号)
+    default: 'list',
   },
   userTags: { type: Array, default: () => [] },
-  note: { type: String, default: "" },
-});
+  note: { type: String, default: '' },
+})
 
+// 把诗词正文拆成"分句"数组
+// 例如:"水光潋滟晴方好,山色空蒙雨亦奇。"
+//   → ["水光潋滟晴方好,", "山色空蒙雨亦奇。"]
 const poemLines = computed(() => {
-  if (!props.poem?.content) return [];
-  return props.poem.content
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean);
-});
+  if (!props.poem?.content) return []
+
+  const rawLines = props.poem.content
+    .split('\n')
+    .map(s => s.trim())
+    .filter(Boolean)
+
+  const result = []
+
+  for (const line of rawLines) {
+    const subs = line.split(/(?<=[,。;!?,.;!?])/g)
+      .map(s => s.trim())
+      .filter(Boolean)
+
+    const maxSubLen = subs.reduce((max, s) => Math.max(max, s.length), 0)
+
+    if (maxSubLen <= 6) {
+      result.push(line)
+    } else {
+      result.push(...subs)
+    }
+  }
+
+  return result
+})
 </script>
 
 <style scoped>
@@ -126,5 +148,21 @@ const poemLines = computed(() => {
 .note {
   font-size: var(--fs-sm);
   font-style: italic;
+}
+/* === 移动端:每个分句独占一行 === */
+@media (max-width: 640px) {
+  /* hero 模式(详情页和推荐页用) */
+  .mode-hero .card-line {
+    font-size: var(--fs-lg);   /* 22 → 18,稍小 */
+    letter-spacing: 2px;        /* 4 → 2,字距收紧 */
+    line-height: 2.2;
+  }
+
+  /* list 模式 */
+  .mode-list .card-line {
+    font-size: var(--fs-sm);
+    letter-spacing: 1px;
+    line-height: 2;
+  }
 }
 </style>

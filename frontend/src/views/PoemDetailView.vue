@@ -1,6 +1,6 @@
 <template>
   <div class="detail-page container">
-    <button class="back-btn text-soft" @click="goBack">← 返回</button>
+    <button class="back-btn text-soft" @click="goBack">返回</button>
 
     <LoadingSpinner v-if="loading" />
 
@@ -61,6 +61,7 @@
       :my-tags="myTagNames"
       @success="onFavoriteSuccess"
     />
+
   </div>
 </template>
 
