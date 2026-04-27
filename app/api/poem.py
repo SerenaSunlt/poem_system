@@ -1,4 +1,4 @@
-# app/api/poem.py(完整覆盖)
+# app/api/poem.py
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,7 @@ from app.services.poem_service import (
     PoemServiceError,
 )
 from app.services.kimi_service import expand_keywords, KimiServiceError
+from app.services.translation_service import get_translation
 
 router = APIRouter(prefix="/api/poems", tags=["poems"])
 
@@ -27,19 +28,35 @@ async def recommend(
 ):
     """诗词推荐(游客可访问)"""
     user_id = current_user.id if current_user else None
-    keywords: list[str] = []
+
+    # Kimi 解析出的结构化检索意图,默认空
+    extracted = {"authors": [], "dynasties": [], "keywords": []}
 
     if prompt and prompt.strip():
         try:
-            keywords = await expand_keywords(prompt)
+            extracted = await expand_keywords(prompt)
         except KimiServiceError:
-            keywords = [prompt.strip()]
+            # Kimi 失败就把原 prompt 当一个普通关键词
+            extracted = {
+                "authors": [],
+                "dynasties": [],
+                "keywords": [prompt.strip()],
+            }
 
+        # 用结构化意图查诗
         try:
-            poems = prompt_recommend(db, user_id, keywords, count=count)
+            poems = prompt_recommend(
+                db,
+                user_id,
+                keywords=extracted["keywords"],
+                authors=extracted["authors"],
+                dynasties=extracted["dynasties"],
+                count=count,
+            )
         except PoemServiceError as e:
             return error(e.code, e.message)
 
+        # 没匹配到,fallback 随机
         if not poems:
             poems = random_recommend(db, user_id, count)
     else:
@@ -63,9 +80,16 @@ async def recommend(
             for p in poems
         ]
 
+    # 把三类合并成一个扁平数组,方便前端展示
+    flat_keywords = (
+            extracted["authors"]
+            + extracted["dynasties"]
+            + extracted["keywords"]
+    )
+
     return success({
         "poems": poems_with_status,
-        "prompt_keywords": keywords,
+        "prompt_keywords": flat_keywords,
     })
 
 
@@ -103,8 +127,6 @@ def get_poem(
                 "created_at": favorite.created_at.isoformat(),
             }
 
-        # 查这首诗当前用户是否已翻译
-        from app.services.translation_service import get_translation
         translation = get_translation(db, current_user.id, poem.id)
         if translation:
             data["has_translation"] = True

@@ -131,9 +131,11 @@ const myTagNames = computed(() => myTags.value.map(t => t.name))
 
 // === 诗句分行处理 ===
 const poemLines = computed(() => {
-  if (!currentPoem.value?.content) return []
+  // 优先用简体,没有就 fallback 到原 content
+  const text = currentPoem.value?.content_simplified || currentPoem.value?.content
+  if (!text) return []
 
-  const rawLines = currentPoem.value.content
+  const rawLines = text
     .split('\n')
     .map(s => s.trim())
     .filter(Boolean)
