@@ -7,7 +7,17 @@ from sqlalchemy.orm import Session
 
 from app.models import Poem, Favorite, Dislike
 
+import re
 
+PUNCTUATION_PATTERN = re.compile(
+    r"[,，。.!！?？;；:：、\"“”'‘’()（）《》〈〉「」『』【】〔〕\s,.!?;:\"'()\[\]<>—…·\-]"
+)
+
+def _normalize_search_text(text: str | None) -> str:
+    """去掉标点和空白，用于诗句片段匹配"""
+    if not text:
+        return ""
+    return PUNCTUATION_PATTERN.sub("", text)
 class PoemServiceError(Exception):
     """诗词服务相关业务错误"""
 
@@ -132,10 +142,17 @@ def prompt_recommend(
 
     # 诗句片段全文匹配 +100(用 content_simplified)
     if verse_phrase:
-        verse_pattern = f"%{verse_phrase}%"
-        verse_hit = Poem.content_simplified.like(verse_pattern)
-        score_exprs.append(case((verse_hit, 100), else_=0))
-        or_filters.append(verse_hit)
+        normalized_verse = _normalize_search_text(verse_phrase)
+
+        if normalized_verse:
+            verse_plain_hit = Poem.content_plain.like(f"%{normalized_verse}%")
+            score_exprs.append(case((verse_plain_hit, 100), else_=0))
+            or_filters.append(verse_plain_hit)
+
+        # 兼容原始带标点文本
+        verse_raw_hit = Poem.content_simplified.like(f"%{verse_phrase}%")
+        score_exprs.append(case((verse_raw_hit, 80), else_=0))
+        or_filters.append(verse_raw_hit)
 
     # 标题精确匹配 +60(intent=specific 用)
     if title:
@@ -148,11 +165,18 @@ def prompt_recommend(
 
     # 关键词命中标题 +50,命中正文 +1
     for kw in keywords:
-        like_pattern = f"%{kw}%"
-        title_hit = Poem.title.like(like_pattern)
+        normalized_kw = _normalize_search_text(kw)
+        if not normalized_kw:
+            continue
+
+        like_pattern = f"%{normalized_kw}%"
+        title_hit = Poem.title.like(f"%{kw}%")
         text_hit = Poem.search_text.like(like_pattern)
+
         score_exprs.append(case((title_hit, 50), else_=0))
-        score_exprs.append(case((text_hit, 1), else_=0))
+        score_exprs.append(case((text_hit, 10), else_=0))
+
+        or_filters.append(title_hit)
         or_filters.append(text_hit)
 
     # 作者 +10
