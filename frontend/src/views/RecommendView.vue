@@ -4,16 +4,16 @@
     <section class="prompt-section container">
       <div class="prompt-input-wrap">
         <input
-          v-model="promptInput"
-          class="prompt-input"
-          placeholder="这一刻你在想什么 ..."
-          maxlength="100"
-          @keydown.enter="handlePromptSubmit"
+            v-model="promptInput"
+            class="prompt-input"
+            placeholder="这一刻你在想什么 ..."
+            maxlength="100"
+            @keydown.enter="handlePromptSubmit"
         />
         <button
-          class="prompt-btn"
-          :disabled="loading"
-          @click="handlePromptSubmit"
+            class="prompt-btn"
+            :disabled="loading"
+            @click="handlePromptSubmit"
         >
           寻 诗
         </button>
@@ -30,12 +30,12 @@
 
     <!-- 内容区:加载中 / 诗词 / 空 -->
     <main class="poem-main container">
-      <LoadingSpinner v-if="loading" />
+      <LoadingSpinner v-if="loading"/>
 
       <article
-        v-else-if="currentPoem"
-        :key="currentPoem.id"
-        class="poem-card fade-up"
+          v-else-if="currentPoem"
+          :key="currentPoem.id"
+          class="poem-card fade-up"
       >
         <header class="poem-header">
           <h1 class="poem-title font-kaiti">{{ currentPoem.title }}</h1>
@@ -53,13 +53,13 @@
 
         <footer class="poem-actions">
           <button
-            class="action-btn"
-            :class="{ 'is-active': currentPoem.is_favorited }"
-            @click="handleFavoriteClick"
+              class="action-btn"
+              :class="{ 'is-active': currentPoem.is_favorited }"
+              @click="handleFavoriteClick"
           >
             <span class="action-icon">{{
-              currentPoem.is_favorited ? "♥" : "♡"
-            }}</span>
+                currentPoem.is_favorited ? "♥" : "♡"
+              }}</span>
             <span>{{ currentPoem.is_favorited ? "已收藏" : "收藏" }}</span>
           </button>
 
@@ -80,31 +80,35 @@
 
     <!-- 收藏弹窗 -->
     <FavoriteDialog
-      v-model="showFavoriteDialog"
-      :poem="currentPoem"
-      :my-tags="myTagNames"
-      @success="onFavoriteSuccess"
+        v-model="showFavoriteDialog"
+        :poem="currentPoem"
+        :my-tags="myTagNames"
+        @success="onFavoriteSuccess"
     />
 
     <!-- 游客底部入口(已登录用户不显示) -->
     <footer v-if="!userStore.isLoggedIn" class="guest-entry">
       <RouterLink
-        :to="{ path: '/login', query: { redirect: $route.fullPath } }"
-        class="guest-entry-link"
+          :to="{ path: '/login', query: { redirect: $route.fullPath } }"
+          class="guest-entry-link"
       >
         登录 / 注册 · 收藏你心仪的诗句
       </RouterLink>
     </footer>
+    <!-- 加在这里:候选耗尽提示 -->
+    <p v-if="exhausted" class="exhausted-hint text-faint">
+      已展示完所有匹配,试试换个搜索词
+    </p>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { storeToRefs } from 'pinia'
-import { RouterLink, useRouter, useRoute } from 'vue-router'
-import { useRecommendStore } from '../stores/recommend'
-import { useUserStore } from '../stores/user'
-import { useToastStore } from '../stores/toast'
+import {computed, onMounted, ref} from 'vue'
+import {storeToRefs} from 'pinia'
+import {RouterLink, useRoute, useRouter} from 'vue-router'
+import {useRecommendStore} from '../stores/recommend'
+import {useUserStore} from '../stores/user'
+import {useToastStore} from '../stores/toast'
 import * as favoriteApi from '../api/favorite'
 import * as dislikeApi from '../api/dislike'
 import FavoriteDialog from '../components/FavoriteDialog.vue'
@@ -117,7 +121,7 @@ const router = useRouter()
 const route = useRoute()
 
 // 从 store 解构出响应式状态(用 storeToRefs 保持响应性)
-const { currentPoem, lastPrompt, keywords, loading } = storeToRefs(recommendStore)
+const {currentPoem, lastPrompt, keywords, loading, exhausted} = storeToRefs(recommendStore)
 
 // 输入框的本地状态
 const promptInput = ref('')
@@ -136,16 +140,16 @@ const poemLines = computed(() => {
   if (!text) return []
 
   const rawLines = text
-    .split('\n')
-    .map(s => s.trim())
-    .filter(Boolean)
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean)
 
   const result = []
 
   for (const line of rawLines) {
     const subs = line.split(/(?<=[,。;!?,.;!?])/g)
-      .map(s => s.trim())
-      .filter(Boolean)
+        .map(s => s.trim())
+        .filter(Boolean)
 
     const maxSubLen = subs.reduce((max, s) => Math.max(max, s.length), 0)
 
@@ -178,18 +182,18 @@ onMounted(async () => {
 // 寻诗(根据当前输入)
 async function handlePromptSubmit() {
   if (loading.value) return
-  await recommendStore.loadNewPoem(promptInput.value.trim())
+  await recommendStore.searchNew(promptInput.value.trim())
 }
 
 // 换一首(沿用上次的 prompt)
 async function loadNext() {
-  await recommendStore.loadNewPoem(lastPrompt.value)
+  await recommendStore.loadAnother(lastPrompt.value)
 }
 
 // 清除当前 prompt,加载随机诗
 async function clearPrompt() {
   promptInput.value = ''
-  await recommendStore.loadNewPoem('')
+  await recommendStore.searchNew('')
 }
 
 // 收藏按钮
@@ -200,7 +204,7 @@ async function handleFavoriteClick() {
   if (!userStore.isLoggedIn) {
     router.push({
       path: '/login',
-      query: { redirect: route.fullPath }
+      query: {redirect: route.fullPath}
     })
     return
   }
@@ -232,11 +236,10 @@ function onFavoriteSuccess() {
 async function handleDislike() {
   if (!currentPoem.value) return
 
-  // 游客也允许"不喜欢"?如果你想限制只有登录用户才能点,加上下面这段
   if (!userStore.isLoggedIn) {
     router.push({
       path: '/login',
-      query: { redirect: route.fullPath }
+      query: {redirect: route.fullPath}
     })
     return
   }
@@ -244,7 +247,7 @@ async function handleDislike() {
   try {
     await dislikeApi.add(currentPoem.value.id)
     toast.success('已标记,将不再推荐')
-    await recommendStore.loadNewPoem(lastPrompt.value)
+    await recommendStore.loadAnother()
   } catch (e) {
     // 拦截器已处理
   }
@@ -271,12 +274,14 @@ async function fetchMyTags() {
 .prompt-section {
   margin-bottom: var(--space-7);
 }
+
 .prompt-input-wrap {
   display: flex;
   gap: 0;
   border: 1px solid var(--color-border);
   background: var(--color-bg-card);
 }
+
 .prompt-input {
   flex: 1;
   padding: var(--space-3) var(--space-4);
@@ -284,6 +289,7 @@ async function fetchMyTags() {
   font-family: var(--font-kaiti);
   letter-spacing: 1px;
 }
+
 .prompt-btn {
   padding: 0 var(--space-5);
   background: var(--color-accent);
@@ -293,13 +299,16 @@ async function fetchMyTags() {
   font-size: var(--fs-base);
   transition: background var(--transition);
 }
+
 .prompt-btn:hover:not(:disabled) {
   background: var(--color-accent-hover);
 }
+
 .prompt-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
 .prompt-keywords {
   margin-top: var(--space-3);
   font-size: var(--fs-sm);
@@ -308,17 +317,20 @@ async function fetchMyTags() {
   align-items: center;
   gap: var(--space-2);
 }
+
 .keyword {
   color: var(--color-accent);
   padding: 0 var(--space-2);
   border-bottom: 1px dashed var(--color-border);
 }
+
 .clear-prompt {
   margin-left: auto;
   font-size: var(--fs-xs);
   color: var(--color-text-faint);
   border-bottom: 1px solid transparent;
 }
+
 .clear-prompt:hover {
   color: var(--color-text-soft);
   border-bottom-color: currentColor;
@@ -331,34 +343,41 @@ async function fetchMyTags() {
   align-items: center;
   justify-content: center;
 }
+
 .poem-card {
   width: 100%;
   text-align: center;
   padding: var(--space-7) 0;
 }
+
 .poem-header {
   margin-bottom: var(--space-6);
 }
+
 .poem-title {
   font-size: var(--fs-3xl);
   letter-spacing: 6px;
   color: var(--color-text);
   margin-bottom: var(--space-3);
 }
+
 .poem-meta {
   font-size: var(--fs-base);
   letter-spacing: 2px;
 }
+
 .poem-content {
   margin-bottom: var(--space-7);
   font-family: var(--font-kaiti);
   line-height: 2.4;
 }
+
 .poem-line {
   font-size: var(--fs-xl);
   letter-spacing: 4px;
   color: var(--color-text);
 }
+
 .poem-actions {
   display: flex;
   justify-content: center;
@@ -367,6 +386,7 @@ async function fetchMyTags() {
   border-top: 1px solid var(--color-border-soft);
   flex-wrap: wrap;
 }
+
 .action-btn {
   display: inline-flex;
   align-items: center;
@@ -377,12 +397,15 @@ async function fetchMyTags() {
   transition: color var(--transition);
   white-space: nowrap;
 }
+
 .action-btn:hover {
   color: var(--color-accent);
 }
+
 .action-btn.is-active {
   color: var(--color-accent);
 }
+
 .action-icon {
   font-size: var(--fs-lg);
 }
@@ -399,6 +422,7 @@ async function fetchMyTags() {
   padding: var(--space-5) 0;
   text-align: center;
 }
+
 .guest-entry-link {
   font-family: var(--font-kaiti);
   font-size: var(--fs-sm);
@@ -408,9 +432,18 @@ async function fetchMyTags() {
   border-bottom: 1px solid transparent;
   transition: all var(--transition);
 }
+
 .guest-entry-link:hover {
   color: var(--color-accent);
   border-bottom-color: var(--color-border);
+}
+
+.exhausted-hint {
+  text-align: center;
+  margin-top: var(--space-4);
+  font-size: var(--fs-sm);
+  font-family: var(--font-kaiti);
+  letter-spacing: 2px;
 }
 
 @media (max-width: 640px) {
@@ -419,20 +452,26 @@ async function fetchMyTags() {
     letter-spacing: 2px;
     line-height: 2.2;
   }
+
   .poem-line:nth-child(even) {
     margin-bottom: var(--space-2);
   }
+
   .poem-title {
     font-size: var(--fs-2xl);
     letter-spacing: 4px;
   }
-   /* 移动端按钮适配 */
+
+  /* 移动端按钮适配 */
   .poem-actions {
     gap: var(--space-4);
   }
+
   .action-btn {
     padding: var(--space-2) var(--space-3);
   }
+
 }
+
 
 </style>

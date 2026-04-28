@@ -26,7 +26,7 @@ def _get_disliked_poem_ids(db: Session, user_id: Optional[int]) -> Set[int]:
 
 
 def _get_favorited_poem_ids(
-        db: Session, user_id: int, poem_ids: List[int]
+    db: Session, user_id: int, poem_ids: List[int]
 ) -> Set[int]:
     if not poem_ids:
         return set()
@@ -41,15 +41,18 @@ def _get_favorited_poem_ids(
 # ===== 推荐 =====
 
 def random_recommend(
-        db: Session,
-        user_id: Optional[int],
-        count: int = 1,
+    db: Session,
+    user_id: Optional[int],
+    count: int = 1,
+    exclude_ids: Optional[Set[int]] = None,
 ) -> List[Poem]:
-    """随机推荐 count 首诗,排除用户已 dislike 的"""
+    """随机推荐 count 首诗,排除用户已 dislike 的 + 调用方传入的 exclude_ids"""
     if count < 1 or count > 5:
         raise PoemServiceError(1001, "count 必须在 1~5 之间")
 
     disliked_ids = _get_disliked_poem_ids(db, user_id)
+    exclude_ids = exclude_ids or set()
+    excluded_all = disliked_ids | exclude_ids
 
     max_id = db.query(func.max(Poem.id)).scalar()
     if not max_id:
@@ -65,17 +68,17 @@ def random_recommend(
         attempts += 1
         random_id = random.randint(1, max_id)
 
-        excluded_ids = selected_ids | disliked_ids
+        skip_ids = selected_ids | excluded_all
         query = db.query(Poem).filter(Poem.id >= random_id)
-        if excluded_ids:
-            query = query.filter(not_(Poem.id.in_(excluded_ids)))
+        if skip_ids:
+            query = query.filter(not_(Poem.id.in_(skip_ids)))
 
         poem = query.order_by(Poem.id).first()
 
         if poem is None:
             query = db.query(Poem)
-            if excluded_ids:
-                query = query.filter(not_(Poem.id.in_(excluded_ids)))
+            if skip_ids:
+                query = query.filter(not_(Poem.id.in_(skip_ids)))
             poem = query.order_by(Poem.id).first()
 
         if poem and poem.id not in selected_ids:
@@ -86,21 +89,28 @@ def random_recommend(
 
 
 def prompt_recommend(
-        db: Session,
-        user_id: Optional[int],
-        keywords: Optional[List[str]] = None,
-        authors: Optional[List[str]] = None,
-        dynasties: Optional[List[str]] = None,
-        count: int = 3,
+    db: Session,
+    user_id: Optional[int],
+    intent: str = "scene",
+    verse_phrase: Optional[str] = None,
+    title: Optional[str] = None,
+    keywords: Optional[List[str]] = None,
+    authors: Optional[List[str]] = None,
+    dynasties: Optional[List[str]] = None,
+    seen_ids: Optional[Set[int]] = None,
+    count: int = 1,
 ) -> List[Poem]:
     """
-    基于结构化检索意图推荐:
-    - 标题命中关键词 +50 分(精准命中)
-    - 作者命中 +10 分
-    - 朝代命中 +3 分
-    - 关键词内容命中 +1 分
+    基于结构化检索意图推荐。打分体系:
+    - 诗句片段命中 +100  (intent=verse)
+    - 标题精确匹配 +60   (intent=specific 时,title 字段)
+    - 关键词命中标题 +50 (intent=scene 时,keyword 命中标题)
+    - 作者命中 +10
+    - 朝代命中 +3
+    - 关键词命中正文 +1
 
-    高分(>=50)精准命中不参与随机,按分数顺序取;低分用随机抽样保证多样性。
+    高分(>=50)直接按分数顺序取,不参与随机;低分用随机抽样保证多样性。
+    seen_ids 中的诗会被排除,实现"换一首"的换不重复语义。
     """
     if count < 1 or count > 5:
         raise PoemServiceError(1001, "count 必须在 1~5 之间")
@@ -108,16 +118,35 @@ def prompt_recommend(
     keywords = keywords or []
     authors = authors or []
     dynasties = dynasties or []
+    seen_ids = seen_ids or set()
 
-    if not keywords and not authors and not dynasties:
+    # 完全没条件,返回空(由调用方走随机)
+    if not (verse_phrase or title or keywords or authors or dynasties):
         return []
 
     disliked_ids = _get_disliked_poem_ids(db, user_id)
+    excluded_ids = disliked_ids | seen_ids
 
     score_exprs = []
     or_filters = []
 
-    # 关键词:标题命中权重 +50,内容命中 +1
+    # 诗句片段全文匹配 +100(用 content_simplified)
+    if verse_phrase:
+        verse_pattern = f"%{verse_phrase}%"
+        verse_hit = Poem.content_simplified.like(verse_pattern)
+        score_exprs.append(case((verse_hit, 100), else_=0))
+        or_filters.append(verse_hit)
+
+    # 标题精确匹配 +60(intent=specific 用)
+    if title:
+        title_exact = (Poem.title == title)
+        title_like = Poem.title.like(f"%{title}%")
+        score_exprs.append(case((title_exact, 60), else_=0))
+        # 模糊命中标题加 50,跟下面 keyword 命中标题同等
+        score_exprs.append(case((title_like, 50), else_=0))
+        or_filters.append(title_like)
+
+    # 关键词命中标题 +50,命中正文 +1
     for kw in keywords:
         like_pattern = f"%{kw}%"
         title_hit = Poem.title.like(like_pattern)
@@ -126,13 +155,13 @@ def prompt_recommend(
         score_exprs.append(case((text_hit, 1), else_=0))
         or_filters.append(text_hit)
 
-    # 作者权重 +10
+    # 作者 +10
     for author in authors:
         condition = (Poem.author == author)
         score_exprs.append(case((condition, 10), else_=0))
         or_filters.append(condition)
 
-    # 朝代权重 +3
+    # 朝代 +3
     for dynasty in dynasties:
         condition = (Poem.dynasty == dynasty)
         score_exprs.append(case((condition, 3), else_=0))
@@ -144,26 +173,28 @@ def prompt_recommend(
     score = sum(score_exprs[1:], score_exprs[0]).label("score")
 
     query = db.query(Poem, score).filter(or_(*or_filters))
-    if disliked_ids:
-        query = query.filter(~Poem.id.in_(disliked_ids))
+    if excluded_ids:
+        query = query.filter(~Poem.id.in_(excluded_ids))
 
+    # 候选量:取多一点,保证"换一首"够换
+    candidate_limit = max(count * 10, 20)
     candidates = (
         query.order_by(literal_column("score").desc(), Poem.id)
-        .limit(count * 5)
+        .limit(candidate_limit)
         .all()
     )
 
     if not candidates:
         return []
 
-    # 高分精准命中(>=50,即标题命中):不参与随机,按分数顺序取前 count 条
     HIGH_SCORE_THRESHOLD = 50
     high_score = [(p, s) for p, s in candidates if s >= HIGH_SCORE_THRESHOLD]
 
     if high_score:
+        # 高分:按分数顺序取(精准命中,不随机)
         selected = high_score[:count]
     else:
-        # 中低分:随机抽,保证多样性
+        # 低分:随机抽样,保证多样
         selected = random.sample(candidates, min(count, len(candidates)))
 
     return [poem for poem, _score in selected]
@@ -179,7 +210,7 @@ def get_poem_by_id(db: Session, poem_id: int) -> Poem:
 
 
 def get_user_favorite(
-        db: Session, user_id: int, poem_id: int
+    db: Session, user_id: int, poem_id: int
 ) -> Optional[Favorite]:
     return (
         db.query(Favorite)
@@ -189,9 +220,9 @@ def get_user_favorite(
 
 
 def attach_favorite_status(
-        db: Session,
-        user_id: int,
-        poems: List[Poem],
+    db: Session,
+    user_id: int,
+    poems: List[Poem],
 ) -> List[dict]:
     poem_ids = [p.id for p in poems]
     favorited_ids = _get_favorited_poem_ids(db, user_id, poem_ids)

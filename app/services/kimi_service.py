@@ -10,14 +10,23 @@ import httpx
 
 from app.config import settings
 
-
 logger = logging.getLogger(__name__)
 
 
 # ===== 数据结构 =====
 
-class KeywordExtractResult(TypedDict):
-    """Kimi 解析出的结构化检索意图"""
+class KeywordExtractResult(TypedDict, total=False):
+    """Kimi 解析出的结构化检索意图。
+
+    intent 决定后端走哪条匹配路径:
+    - "verse":   用户输入了诗句片段(连续 4+ 字符的诗句),走全文精准匹配
+    - "specific": 用户在找特定诗(给了标题/作者/朝代),走精确字段匹配
+    - "scene":   用户描述场景或氛围,走关键词模糊匹配
+    - "random":  无明确意图(空输入、随机请求),走随机推荐
+    """
+    intent: str
+    verse_phrase: Optional[str]
+    title: Optional[str]
     authors: List[str]
     dynasties: List[str]
     keywords: List[str]
@@ -61,62 +70,138 @@ class _SimpleCache:
 _cache = _SimpleCache(max_size=500, ttl_seconds=86400)
 
 
+# ===== 默认空结果 =====
+
+def _empty_result() -> KeywordExtractResult:
+    return {
+        "intent": "random",
+        "verse_phrase": None,
+        "title": None,
+        "authors": [],
+        "dynasties": [],
+        "keywords": [],
+    }
+
+
 # ===== Prompt 设计 =====
 
 SYSTEM_PROMPT = """你是一个中国古典诗词检索助手。
 
-你的任务是:把用户输入的描述,解析为结构化的检索条件,用于在古诗词数据库中检索。
+任务:把用户输入解析成结构化的检索意图,用于在古诗词数据库中检索。
 
-输出三类信息:
-1. authors:用户明确提到的诗人名字。请使用诗人的标准姓名(例如"苏东坡"应规范化为"苏轼","太白"应规范化为"李白","易安居士"规范化为"李清照")。如果用户没提诗人,返回空数组。
-2. dynasties:用户提到的朝代。请严格使用以下单字或词:唐、宋、元、明、清、汉、魏晋、南北朝。诗经/楚辞时代统一用"先秦"。如果用户说"唐朝"、"唐代",规范化为"唐"。如果用户没提朝代,返回空数组。
-3. keywords:适合在古诗词数据库中做关键词检索的词:
-   - 如果用户输入像诗名(2-5 字精炼词,可能跟作者一起出现),把它作为 keywords 的第一项,用于匹配标题
-   - 此外,根据语境再扩 2-5 个意象词、季节词、情感词
-   - 优先用单字或双字词,贴近古诗用词(用"暮"而非"傍晚",用"舟"而非"船",用"月"而非"月亮")
-   - 如果用户只提了诗人或朝代没提具体场景,keywords 可以为空数组
+## 第一步:判断 intent
 
-示例 1:
-输入:"李白写的关于月亮的诗"
-输出:{"authors": ["李白"], "dynasties": [], "keywords": ["月", "明月", "夜"]}
+把用户输入归类为以下四种之一:
 
-示例 2:
-输入:"西湖傍晚"
-输出:{"authors": [], "dynasties": [], "keywords": ["西湖", "湖", "暮", "夕阳", "晚霞"]}
+- "verse":     用户输入包含一句完整的古诗句(连续 4 个或更多汉字,符合古诗语感),例如"空山新雨后"、"床前明月光"、"大江东去"。即使夹杂作者名、错别字、残缺,只要能识别出诗句片段,都归 verse。
+- "specific": 用户在找一首特定的诗,给了标题、作者、朝代或别称中的一个或多个,但没有给出诗句本身。例如"对酒 曹操"、"念奴娇 怀古"、"东坡的水调歌头"、"易安居士"。
+- "scene":    用户描述一种场景、情感、意象或现代说法,需要做模糊推荐。例如"秋天的离别"、"宋词 思乡"、"给我一首可以发朋友圈的"、"想家了"。
+- "random":   用户没有任何检索意图。例如空输入、纯标点、"换一首"、"随便来一个"、无意义乱码。
 
-示例 3:
-输入:"宋词 思乡"
-输出:{"authors": [], "dynasties": ["宋"], "keywords": ["故乡", "思", "归", "乡"]}
+## 第二步:根据 intent,提取对应字段
 
-示例 4:
-输入:"东坡"
-输出:{"authors": ["苏轼"], "dynasties": [], "keywords": []}
+根据 intent 给不同字段赋值,其他字段为空数组或 null:
+
+### intent = "verse"
+- verse_phrase: 提取出的完整诗句(去掉作者名、纠正明显错别字、补全合理的残句)
+- authors: 如果用户也提到了作者,识别并规范化
+- 其他字段: null 或空数组
+
+### intent = "specific"
+- title: 如果用户给了标题,提取出来(规范化为常见名)
+- authors: 如果用户给了作者,提取并规范化(详见规范化规则)
+- dynasties: 如果用户给了朝代,提取并规范化(唐/宋/元/明/清/汉/魏晋/南北朝/先秦)
+- 其他字段: null 或空数组
+
+### intent = "scene"
+- keywords: 3-6 个适合检索的古诗常见意象、季节、自然景物、情感词
+  - 优先用单字或双字词,贴近古诗用词(用"暮"而非"傍晚",用"舟"而非"船",用"月"而非"月亮")
+  - 包含字面词和意境延伸词
+- authors / dynasties: 如果用户也提到,顺便提取
+- 其他字段: null 或空数组
+
+### intent = "random"
+- 所有字段为空数组或 null
+
+## 规范化规则
+
+- 作者:用标准姓名("苏东坡"→"苏轼","太白"→"李白","易安居士"→"李清照","老杜"→"杜甫","摩诘"→"王维")
+- 朝代:用单字("唐朝"→"唐","宋代"→"宋"),诗经/楚辞→"先秦",魏晋时期→"魏晋"
+
+## 输出格式
+
+严格 JSON,只输出一个对象,不要 markdown 标记或额外文字:
+{"intent": "...", "verse_phrase": null|"...", "title": null|"...", "authors": [...], "dynasties": [...], "keywords": [...]}
+
+## 示例
+
+示例 1(诗句片段):
+输入:"空山新雨后王维"
+输出:{"intent": "verse", "verse_phrase": "空山新雨后", "title": null, "authors": ["王维"], "dynasties": [], "keywords": []}
+
+示例 2(诗句片段,无作者):
+输入:"床前明月光"
+输出:{"intent": "verse", "verse_phrase": "床前明月光", "title": null, "authors": [], "dynasties": [], "keywords": []}
+
+示例 3(残句 / 错别字):
+输入:"举头望明日"
+输出:{"intent": "verse", "verse_phrase": "举头望明月", "title": null, "authors": [], "dynasties": [], "keywords": []}
+
+示例 4(完整一句以上):
+输入:"床前明月光,疑是地上霜"
+输出:{"intent": "verse", "verse_phrase": "床前明月光", "title": null, "authors": [], "dynasties": [], "keywords": []}
 
 示例 5(诗名 + 作者):
 输入:"对酒 曹操"
-输出:{"authors": ["曹操"], "dynasties": [], "keywords": ["对酒"]}
+输出:{"intent": "specific", "verse_phrase": null, "title": "对酒", "authors": ["曹操"], "dynasties": [], "keywords": []}
 
 示例 6(只有诗名):
 输入:"短歌行"
-输出:{"authors": [], "dynasties": [], "keywords": ["短歌行"]}
+输出:{"intent": "specific", "verse_phrase": null, "title": "短歌行", "authors": [], "dynasties": [], "keywords": []}
 
-示例 7(诗名 + 场景):
-输入:"念奴娇 怀古"
-输出:{"authors": [], "dynasties": [], "keywords": ["念奴娇", "怀古", "古"]}
+示例 7(作者别称):
+输入:"东坡"
+输出:{"intent": "specific", "verse_phrase": null, "title": null, "authors": ["苏轼"], "dynasties": [], "keywords": []}
 
-严格按 JSON 格式返回,不要任何其他文字:
-{"authors": [...], "dynasties": [...], "keywords": [...]}"""
+示例 8(朝代 + 体裁):
+输入:"宋词"
+输出:{"intent": "specific", "verse_phrase": null, "title": null, "authors": [], "dynasties": ["宋"], "keywords": []}
+
+示例 9(场景):
+输入:"西湖傍晚"
+输出:{"intent": "scene", "verse_phrase": null, "title": null, "authors": [], "dynasties": [], "keywords": ["西湖", "湖", "暮", "夕阳", "晚霞"]}
+
+示例 10(场景 + 朝代):
+输入:"宋词 思乡"
+输出:{"intent": "scene", "verse_phrase": null, "title": null, "authors": [], "dynasties": ["宋"], "keywords": ["故乡", "思", "归", "乡"]}
+
+示例 11(现代意图):
+输入:"给我一首可以发朋友圈的"
+输出:{"intent": "scene", "verse_phrase": null, "title": null, "authors": [], "dynasties": [], "keywords": ["美", "景", "意", "趣"]}
+
+示例 12(场景 + 作者):
+输入:"李白写的关于月亮的诗"
+输出:{"intent": "scene", "verse_phrase": null, "title": null, "authors": ["李白"], "dynasties": [], "keywords": ["月", "明月", "夜"]}
+
+示例 13(随机意图):
+输入:"换一首"
+输出:{"intent": "random", "verse_phrase": null, "title": null, "authors": [], "dynasties": [], "keywords": []}
+
+示例 14(无意义输入):
+输入:"asdfgh"
+输出:{"intent": "random", "verse_phrase": null, "title": null, "authors": [], "dynasties": [], "keywords": []}
+"""
 
 
 # ===== 主入口 =====
 
 async def expand_keywords(prompt: str, timeout: float = 10.0) -> KeywordExtractResult:
     """
-    调用 Kimi 解析用户检索意图,返回 authors/dynasties/keywords 三类。
+    调用 Kimi 解析用户检索意图,返回结构化的 KeywordExtractResult。
     带缓存,失败抛 KimiServiceError。
     """
     if not prompt or not prompt.strip():
-        return {"authors": [], "dynasties": [], "keywords": []}
+        return _empty_result()
 
     cache_key = prompt.strip().lower()
 
@@ -173,8 +258,41 @@ async def _call_kimi(prompt: str, timeout: float) -> KeywordExtractResult:
         logger.error(f"Kimi 返回解析失败: {data}, error: {e}")
         raise KimiServiceError("Kimi 返回格式错误")
 
-    # 清洗每个字段
+    return _parse_extract_result(parsed)
+
+
+def _parse_extract_result(parsed: dict) -> KeywordExtractResult:
+    """从 Kimi 返回的 JSON 中清洗出 KeywordExtractResult"""
+    if not isinstance(parsed, dict):
+        return _empty_result()
+
+    # intent
+    intent = parsed.get("intent")
+    if intent not in ("verse", "specific", "scene", "random"):
+        intent = "scene"  # 兜底归到 scene,继续做关键词匹配
+
+    # verse_phrase
+    verse_phrase = parsed.get("verse_phrase")
+    if isinstance(verse_phrase, str):
+        verse_phrase = verse_phrase.strip()
+        if len(verse_phrase) < 4:
+            verse_phrase = None
+    else:
+        verse_phrase = None
+
+    # title
+    title = parsed.get("title")
+    if isinstance(title, str):
+        title = title.strip()
+        if not title or len(title) > 30:
+            title = None
+    else:
+        title = None
+
     return {
+        "intent": intent,
+        "verse_phrase": verse_phrase,
+        "title": title,
         "authors": _clean_str_list(parsed.get("authors"), max_len=20, max_count=5),
         "dynasties": _clean_str_list(parsed.get("dynasties"), max_len=10, max_count=5),
         "keywords": _clean_str_list(parsed.get("keywords"), max_len=10, max_count=8),
@@ -200,9 +318,8 @@ def _clean_str_list(raw, max_len: int, max_count: int) -> List[str]:
     return cleaned[:max_count]
 
 
-# ============ 翻译相关 ============
+# ============ 翻译相关(保持原样,不改动) ============
 
-# 翻译用的 system prompt
 TRANSLATE_SYSTEM_PROMPT = """你是一位古典诗词翻译家。任务是把一首古诗翻译成现代汉语,帮助现代读者理解。
 
 请严格按 JSON 格式返回。结构如下:
