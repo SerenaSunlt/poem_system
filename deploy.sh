@@ -21,8 +21,8 @@ docker compose up -d --build
 echo "部署后容器状态："
 docker compose ps
 
-echo "简单健康检查："
+echo "健康检查："
 sleep 5
-curl -I http://localhost:8080 || true
+curl -f http://localhost:8001/api/health
 
 echo "部署完成"
