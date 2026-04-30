@@ -145,14 +145,10 @@ def prompt_recommend(
         normalized_verse = _normalize_search_text(verse_phrase)
 
         if normalized_verse:
-            verse_plain_hit = Poem.content_plain.like(f"%{normalized_verse}%")
+            # 用 search_text（简体去标点,最可靠的搜索字段）
+            verse_plain_hit = Poem.search_text.like(f"%{normalized_verse}%")
             score_exprs.append(case((verse_plain_hit, 100), else_=0))
             or_filters.append(verse_plain_hit)
-
-        # 兼容原始带标点文本
-        verse_raw_hit = Poem.content_simplified.like(f"%{verse_phrase}%")
-        score_exprs.append(case((verse_raw_hit, 80), else_=0))
-        or_filters.append(verse_raw_hit)
 
     # 标题精确匹配 +60(intent=specific 用)
     if title:
