@@ -35,6 +35,12 @@ def root():
     return {"message": "Poem System is running"}
 
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+@app.get("/api/health")
+async def health_check():
+    return {
+        "code": 0,
+        "message": "ok",
+        "data": {
+            "status": "healthy"
+        }
+    }
