@@ -23,6 +23,6 @@ docker compose ps
 
 echo "健康检查："
 sleep 5
-curl -f http://localhost:8001/api/health
+curl -f http://host.docker.internal:8001/api/health
 
 echo "部署完成"
